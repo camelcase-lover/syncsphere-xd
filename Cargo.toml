@@ -1,0 +1,10 @@
+[package]
+name = "syncsphere-xd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+directories = "6.0.0"
+dryoc = "2.0.0"
+serde = "1.0.229"
+serde_json = "1.0.154"
