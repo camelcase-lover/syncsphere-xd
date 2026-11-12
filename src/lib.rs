@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use directories::ProjectDirs;
 use std::io;
-
+use dryoc::dryocsecretbox::{DryocSecretBox, Key, Nonce};
+use dryoc::types::*;
 #[derive(Deserialize, Serialize, Default)]
 pub struct OfflineStore{
     collections: HashMap<String, Vec<Value>>,
@@ -14,13 +15,30 @@ pub struct OfflineStore{
     file_path: PathBuf,
 }
 
+const NONCE_SIZE: usize = 24;
+
 impl OfflineStore{
 
     pub fn open(path: impl Into<PathBuf>) -> io::Result<Self>{
       	let file_path = path.into();
 	if file_path.exists(){
 		let data = fs::read(&file_path)?;
-		let mut store: Self = serde_json::from_slice(&data)
+		if data.len() < NONCE_SIZE + 16 {
+		     return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid or currupted storage file"));
+		}
+		let nonce = Nonce::try_from(&data[..NONCE_SIZE])
+			.map_err(|_| io::Error::new(
+			io::ErrorKind::InvalidData, "invalid encryption nonce"
+		))?;
+
+		let encrypted = DryocSecretBox::from_bytes(&data[NONCE_SIZE..])
+		.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid encrypted payload"))?;
+
+		let decrypted = encrypted
+			.decrypt_to_vec(&nonce, key)
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Decryption failed: incorrect key or modified file"))?;
+
+		let mut store: Self = serde_json::from_slice(&decrypted)
 		.map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
 		store.file_path = file_path;
 		Ok(Store)
@@ -95,12 +113,20 @@ impl OfflineStore{
     
     fn save(&self) -> io::Result<()> {
        if let Some(parent) = self.file_path.parent() {
+	    if !parent.as_os_str().is_empty() {
 	     fs::create_dir_all(parent)?;
+          }
 	}
         let serialized = serde_json::to_vec(&self.collections)
 	.map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+	
+	let nonce = Nonce::generate();
+	let encrypted = DryocSecretBox::encrypt_to_vecbox(&serialized, &nonce, key)
+	.map_err(|err| io::Error::other(err.to_string()))?;
 
-	fs::write(&self.file_path, serialized)?;
+	let mut cipher_text = nonce.to_vec();
+	
+	fs::write(&self.file_path, cipher_text)?;
 
 	Ok(())
     }
