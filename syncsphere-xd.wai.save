@@ -1,0 +1,14 @@
+record store-config {
+	file-path: strinf,
+}
+
+record store-record{
+	id: string,
+	data: string,
+}
+
+interface offline-store {
+    open: func(config: store-config) -> result<_, string>;
+    push: func(collection: string, data: string) -> result<_, string>;
+    append: func(collection: string)
+}
